@@ -1,6 +1,9 @@
 from src.latent_nerf.configs.train_config import TrainConfig
 from src.latent_nerf.training.trainer import Trainer
 from src.latent_nerf.models.network_grid import NeRFNetwork
+from src.latent_nerf.training.nerf_dataset import NeRFDataset
+from src.utils import make_path, tensor2numpy
+from src.latent_nerf.models.render_utils import get_rays
 
 import pyrallis
 import torch
@@ -19,11 +22,41 @@ class GUITrainer(Trainer):
     def init_nerf(self):
         return NeRFNetwork(self.cfg.render).to(self.device)
 
-    def init_diffusion(self):
-        return None
+    # def calc_text_embeddings(self):
+    #     return None
 
-    def calc_text_embeddings(self):
-        return None
+    def init_dataloaders(self):
+        val_loader = NeRFDataset(self.cfg.render,
+                                 device=self.device,
+                                 type='val',
+                                 H=self.cfg.render.eval_h,
+                                 W=self.cfg.render.eval_w,
+                                 size=self.cfg.log.eval_size).dataloader()
+        return {'val': val_loader}
+
+    def render_output(self, pose, H, W):
+        # dataloader = self.dataloaders['val']
+        # for i, data in enumerate(dataloader):
+
+        # fixed focal
+        cx = H / 2
+        cy = W / 2
+        fovy_range = self.cfg.render.fovy_range
+        fov = (fovy_range[1] + fovy_range[0]) / 2
+        focal = H / (2 * np.tan(np.deg2rad(fov) / 2))
+        intrinsics = torch.FloatTensor([focal, focal, cx, cy]).to(self.device)
+        pose = torch.FloatTensor(pose).to(self.device)
+
+        data = get_rays(pose[None], intrinsics, H, W, -1)
+        data['H'] = torch.tensor(H).to(self.device)
+        data['W'] = torch.tensor(W).to(self.device)
+
+        with torch.cuda.amp.autocast(enabled=self.cfg.optim.fp16):
+            preds, preds_depth, preds_normals = self.eval_render(data)
+
+        pred, pred_depth, pred_normals = tensor2numpy(preds[0]), tensor2numpy(preds_depth[0]), tensor2numpy(
+            preds_normals[0])
+        return pred, pred_depth, pred_normals
 
 
 class OrbitCamera:
@@ -80,8 +113,9 @@ class NGPGUI:
         self.register_dpg()
 
     def render_cam(self, cam):
-        rgb = np.zeros((1000, 1000, 3))
-        depth = np.zeros((1000, 1000))
+        rgb, depth, normal = self.trainer.render_output(cam.pose, self.H, self.W)
+        # rgb = np.zeros((self.H, self.W, 3))
+        # depth = np.zeros((self.H, self.W))
 
         if self.img_mode == 0:
             return rgb
