@@ -6,6 +6,7 @@ from src.utils import make_path, tensor2numpy
 from src.latent_nerf.models.render_utils import get_rays
 
 import pyrallis
+from scipy.spatial.transform import Rotation as R
 import torch
 import dearpygui.dearpygui as dpg
 import numpy as np
@@ -60,8 +61,7 @@ class GUITrainer(Trainer):
 
 
 class OrbitCamera:
-    def __init__(self, K, img_wh, r):
-        self.K = K
+    def __init__(self, img_wh, r):
         self.W, self.H = img_wh
         self.radius = r
         self.center = np.zeros(3)
@@ -96,31 +96,22 @@ class OrbitCamera:
 
 class NGPGUI:
     def __init__(self, trainer):
-        img_wh = [1000, 1000]
-        K = 1
-        radius = 2.5
-
+        self.trainer = trainer
+        img_wh = (1024, 1024)
+        self.cam = OrbitCamera(img_wh, 2.5)
         self.W, self.H = img_wh
-        self.cam = OrbitCamera(K, img_wh, r=radius)
         self.render_buffer = np.ones((self.W, self.H, 3), dtype=np.float32)
 
+        # placeholders
         self.dt = 0
-        self.mean_sample = 0
-        self.img_mode = 0
-
-        self.trainer = trainer
+        self.mean_samples = 0
 
         self.register_dpg()
 
     def render_cam(self, cam):
-        rgb, depth, normal = self.trainer.render_output(cam.pose, self.H, self.W)
-        # rgb = np.zeros((self.H, self.W, 3))
-        # depth = np.zeros((self.H, self.W))
-
-        if self.img_mode == 0:
-            return rgb
-        elif self.img_mode == 1:
-            return depth.astype(np.float32) / 255.
+        rgb, depth, normal = self.trainer.render_output(cam.pose, 128, 128)
+        print(rgb.shape)
+        return rgb
 
     def register_dpg(self):
         dpg.create_context()
@@ -199,8 +190,6 @@ class NGPGUI:
     def render(self):
         while dpg.is_dearpygui_running():
             dpg.set_value("_texture", self.render_cam(self.cam))
-            # dpg.set_value("_log_time", f'Render time: {1000*self.dt:.2f} ms')
-            # dpg.set_value("_samples_per_ray", f'Samples/ray: {self.mean_samples:.2f}')
             dpg.render_dearpygui_frame()
 
 

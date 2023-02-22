@@ -10,3 +10,10 @@ pyrallis
 loguru
 tqdm
 dearpygui
+scipy
+numpy
+torch
+setuptools
+packaging
+pillow
+torchvision
